@@ -6,7 +6,7 @@ require (
 	github.com/gofrs/uuid/v5 v5.4.0
 	github.com/jackc/pgx-gofrs-uuid v0.0.0-20230224015001-1d428863c2e2
 	github.com/jackc/pgx/v5 v5.7.6
-	github.com/tryy3/cozytemp-service-helper v0.0.2
+	github.com/tryy3/cozytemp-service-helper v0.0.3
 )
 
 require (
