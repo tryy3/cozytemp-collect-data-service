@@ -4,7 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
+	"os"
 
 	pgxuuid "github.com/jackc/pgx-gofrs-uuid"
 
@@ -17,13 +18,18 @@ import (
 )
 
 func main() {
+	slog.SetDefault(
+		slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
+			Level: slog.LevelInfo,
+		})),
+	)
 	cfg := config.Load()
 
-	log.Printf("Starting Spoolman Inventory Service")
-	log.Printf("Kafka Brokers: %v", cfg.KafkaBrokers)
-	log.Printf("Consumer Topic: %s", cfg.KafkaConsumerTopic)
-	log.Printf("Producer Topic: %s", cfg.KafkaProducerTopic)
-	log.Printf("Consumer Group: %s", cfg.KafkaConsumerGroup)
+	slog.Info("Starting CozyTemp Collect Data Service")
+	slog.Info("Kafka Brokers", "brokers", cfg.KafkaBrokers)
+	slog.Info("Consumer Topic", "topic", cfg.KafkaConsumerTopic)
+	slog.Info("Producer Topic", "topic", cfg.KafkaProducerTopic)
+	slog.Info("Consumer Group", "group", cfg.KafkaConsumerGroup)
 	consumer := kafka.NewConsumer(cfg.KafkaBrokers, cfg.KafkaConsumerTopic, cfg.KafkaConsumerGroup)
 	defer consumer.Close()
 
@@ -33,57 +39,57 @@ func main() {
 	for {
 		msg, err := consumer.FetchMessage(context.Background())
 		if err != nil {
-			log.Printf("Error reading message: %v", err)
+			slog.Error("Error reading message", "error", err)
 			continue
 		}
 
 		var rawData models.RawDataEvent
 		err = json.Unmarshal(msg.Value, &rawData)
 		if err != nil {
-			log.Printf("Error unmarshalling message: %v", err)
+			slog.Error("Error unmarshalling message", "error", err)
 			continue
 		}
-		log.Printf("Raw Data: %v", rawData)
+		slog.Info("Raw Data", "data", rawData)
 
 		calibrationData, err := collectData(cfg, rawData)
 		if err != nil {
-			log.Printf("Error collecting data: %v", err)
+			slog.Error("Error collecting data", "error", err)
 			continue
 		}
-		log.Printf("Calibration Data: %v", calibrationData)
+		slog.Info("Calibration Data", "data", calibrationData)
 
 		jsonData, err := json.Marshal(calibrationData)
 		if err != nil {
-			log.Printf("Error marshalling calibration data: %v", err)
+			slog.Error("Error marshalling calibration data", "error", err)
 			continue
 		}
 		err = producer.WriteMessage(context.Background(), []byte(calibrationData.NodeIdentifier), jsonData)
 		if err != nil {
-			log.Printf("Error producing message: %v", err)
+			slog.Error("Error producing message", "error", err)
 			continue
 		}
-		log.Printf("Message produced successfully")
+		slog.Info("Message produced successfully")
 
 		err = consumer.CommitMessages(context.Background(), msg)
 		if err != nil {
-			log.Printf("Error committing message: %v", err)
+			slog.Error("Error committing message", "error", err)
 			continue
 		}
-		log.Printf("Message committed successfully")
+		slog.Info("Message committed successfully")
 	}
 }
 
 func collectData(cfg *config.Config, rawData models.RawDataEvent) (*models.BeforeCalibrationDataEvent, error) {
 	db, err := connectToPostgres(cfg)
 	if err != nil {
-		log.Printf("Error connecting to Postgres: %v", err)
+		slog.Error("Error connecting to Postgres", "error", err)
 		return nil, fmt.Errorf("error connecting to Postgres: %w", err)
 	}
 	defer db.Close()
 
 	tx, err := db.Begin(context.Background())
 	if err != nil {
-		log.Printf("Error beginning transaction: %v", err)
+		slog.Error("Error beginning transaction", "error", err)
 		return nil, fmt.Errorf("error beginning transaction: %w", err)
 	}
 	// Rollback is safe to call even if the tx is already closed, so if
@@ -92,40 +98,40 @@ func collectData(cfg *config.Config, rawData models.RawDataEvent) (*models.Befor
 
 	nodeID, err := findOrCreateNode(tx, rawData.NodeIdentifier)
 	if err != nil {
-		log.Printf("Error finding or creating node: %v", err)
+		slog.Error("Error finding or creating node", "error", err)
 		return nil, fmt.Errorf("error finding or creating node: %w", err)
 	}
 	if nodeID == uuid.Nil {
-		log.Printf("Node ID is nil")
+		slog.Error("Node ID is nil")
 		return nil, fmt.Errorf("node ID is nil")
 	}
-	log.Printf("Node ID: %v", nodeID)
+	slog.Info("Node ID", "id", nodeID)
 
 	sensorID, err := findOrCreateSensor(tx, nodeID, rawData.SensorIdentifier)
 	if err != nil {
-		log.Printf("Error finding or creating sensor: %v", err)
+		slog.Error("Error finding or creating sensor", "error", err)
 		return nil, fmt.Errorf("error finding or creating sensor: %w", err)
 	}
 	if sensorID == uuid.Nil {
-		log.Printf("Sensor ID is nil")
+		slog.Error("Sensor ID is nil")
 		return nil, fmt.Errorf("sensor ID is nil")
 	}
-	log.Printf("Sensor ID: %v", sensorID)
+	slog.Info("Sensor ID", "id", sensorID)
 
 	rawDataID, err := insertRawData(tx, sensorID, rawData.Temperature)
 	if err != nil {
-		log.Printf("Error inserting raw data: %v", err)
+		slog.Error("Error inserting raw data", "error", err)
 		return nil, fmt.Errorf("error inserting raw data: %w", err)
 	}
 	if rawDataID == uuid.Nil {
-		log.Printf("Raw Data ID is nil")
+		slog.Error("Raw Data ID is nil")
 		return nil, fmt.Errorf("raw Data ID is nil")
 	}
-	log.Printf("Raw Data ID: %v", rawDataID)
+	slog.Info("Raw Data ID", "id", rawDataID)
 
 	err = tx.Commit(context.Background())
 	if err != nil {
-		log.Printf("Error committing transaction: %v", err)
+		slog.Error("Error committing transaction", "error", err)
 		return nil, fmt.Errorf("error committing transaction: %w", err)
 	}
 	return &models.BeforeCalibrationDataEvent{
