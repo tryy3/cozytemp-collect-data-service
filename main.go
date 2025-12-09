@@ -73,7 +73,7 @@ func main() {
 	}
 }
 
-func collectData(cfg *config.Config, rawData models.RawDataEvent) (*models.CalibrationDataEvent, error) {
+func collectData(cfg *config.Config, rawData models.RawDataEvent) (*models.BeforeCalibrationDataEvent, error) {
 	db, err := connectToPostgres(cfg)
 	if err != nil {
 		log.Printf("Error connecting to Postgres: %v", err)
@@ -128,7 +128,7 @@ func collectData(cfg *config.Config, rawData models.RawDataEvent) (*models.Calib
 		log.Printf("Error committing transaction: %v", err)
 		return nil, fmt.Errorf("error committing transaction: %w", err)
 	}
-	return &models.CalibrationDataEvent{
+	return &models.BeforeCalibrationDataEvent{
 		NodeIdentifier:   rawData.NodeIdentifier,
 		NodeID:           nodeID,
 		SensorIdentifier: rawData.SensorIdentifier,
